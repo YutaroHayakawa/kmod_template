@@ -1,7 +1,6 @@
 #ifndef __LINUX_KMOD_MODULE_H
 #define __LINUX_KMOD_MODULE_H
 
-#define KMOD_FIELD_ORDER 10
 #define KMOD_PROC_BUFLEN 4096
 
 #define KMODD(fmt, ...) \
@@ -9,6 +8,7 @@
 
 struct kmod_user {
 	void *mem;
+	unsigned long memsize;
 	int cpu;
 	struct list_head entity;
 };

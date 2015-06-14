@@ -163,7 +163,7 @@ static void __kmod_disregister(struct file *filp)
 	struct kmod_user *user;
 	user = filp->private_data;
 	if (user) {
-		free_pages((unsigned long) user->mem, KMOD_FIELD_ORDER);
+		free_pages((unsigned long) user->mem, user->memsize);
 		list_del(&user->entity);
 		kfree(user);
 	}
@@ -172,12 +172,15 @@ static void __kmod_disregister(struct file *filp)
 static int kmod_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	int error;
-	unsigned long off, va;
 	u64 pa;
 	struct kmod_user *user;
-	int kmod_cpu = 1;
 	void *field;
-	field = (void *) __get_free_pages(GFP_ATOMIC | __GFP_ZERO, KMOD_FIELD_ORDER);
+	size_t size;
+	unsigned int order;
+
+	size = vma->vm_end - vma->vm_start;
+	order = get_order(size);
+	field = (void *) __get_free_pages(GFP_ATOMIC | __GFP_ZERO, order);
 	if (!field) {
 		KMODD("__get_free_pages failed");
 		return -EINVAL;
@@ -187,18 +190,21 @@ static int kmod_mmap(struct file *filp, struct vm_area_struct *vma)
 		return -EINVAL;
 	}
 
-	for (va = vma->vm_start, off = vma->vm_pgoff;
-	     va < vma->vm_end;
-	     va += PAGE_SIZE, off++) {
-		pa = virt_to_phys(field);
-		error = remap_pfn_range(vma, va, pa >> PAGE_SHIFT, PAGE_SIZE, vma->vm_page_prot);
-		if (error) {
-			KMODD("remap_pfn_range error");
-			return error;
-		}
+	pa = virt_to_phys(field);
+	error = remap_pfn_range(vma, vma->vm_start, pa >> PAGE_SHIFT, size, vma->vm_page_prot);
+	if (error) {
+		KMODD("remap_pfn_range error");
+		return error;
 	}
+
 	user = __kmod_register(field, filp);
-	user->cpu = kmod_cpu;
+	if (!user) {
+		KMODD("kmalloc failed");
+		return -EFAULT;
+	}
+
+	user->memsize = size;
+
 	return 0;
 }
 
@@ -250,7 +256,7 @@ void __kmod_info_exit(void)
 	struct list_head *pos, *next;
 	list_for_each_safe(pos, next, &nuser_list->head) {
 		user = (struct kmod_user *) container_of(pos, struct kmod_user, entity);
-		free_pages((unsigned long) user->mem, KMOD_FIELD_ORDER);
+		free_pages((unsigned long) user->mem, user->memsize);
 		kfree(user);
 	}
 	kfree(nuser_list);
